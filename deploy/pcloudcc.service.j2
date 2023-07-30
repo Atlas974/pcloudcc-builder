@@ -1,0 +1,15 @@
+[Unit]
+Description=pCloud console client
+After=network.target
+
+[Service]
+Type=forking
+User={{ run_user }}
+Group={{ run_group }}
+WorkingDirectory={{ run_dir }}
+ExecStart=pcloudcc -u {{ username }} -m {{ mount_dir }} -d
+ExecStop=pkill --signal KILL pcloudcc
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,94 @@
+- hosts: all
+  become: yes
+
+  vars:
+    home_root: /home
+    mount_root: /media
+    pcloud_account_name: pcloud
+
+    pcloud_home_dir: "{{ home_root }}/{{ pcloud_account_name }}"
+    pcloud_mount_dir: "{{ mount_root }}/{{ pcloud_account_name }}"
+
+    backup_dirs: []
+
+    pcloud_username: "{{ lookup('env', 'PCLOUD_USERNAME') }}"
+    pcloud_password: "{{ lookup('env', 'PCLOUD_PASSWORD') }}"
+    
+  # vars_prompt:
+  #   - name: pcloud_password
+  #     prompt: "Enter your pCloud password"
+  #     private: yes
+
+  tasks:
+    - name: Check if pcloudcc is installed
+      command: which pcloudcc
+      register: pcloudcc_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if pcloudcc is not installed
+      fail:
+        msg: "pcloudcc is not installed"
+      when: pcloudcc_installed.rc != 0
+
+    - name: Create pCloud service account
+      user:
+        name: "{{ pcloud_account_name }}"
+        groups: sudo
+        shell: /sbin/nologin
+        home: "{{ pcloud_home_dir }}"
+        create_home: yes
+        append: yes
+        state: present
+        system: yes
+        comment: "pCloud service account"
+      register: pcloud_account
+
+    - name: Create pCloud mount directory
+      file:
+        path: "{{ pcloud_mount_dir }}"
+        state: directory
+        owner: "{{ pcloud_account.name }}"
+        group: "{{ pcloud_account.group }}"
+        mode: 0755
+
+    - name: Add upload script
+      copy:
+        src: pcloud-upload.sh
+        dest: "{{ pcloud_account.home }}/pcloud-upload.sh"
+        owner: "{{ pcloud_account.name }}"
+        group: "{{ pcloud_account.group }}"
+        mode: 0755
+
+    - name: Configure uploads
+      with_items: "{{ backup_dirs }}"
+      cron:
+        name: "pcloud-upload-{{ item | basename }}"
+        minute: 0
+        hour: 2
+        user: "{{ pcloud_account.name }}"
+        job: "{{ pcloud_account.home }}/pcloud-upload.sh {{ item }}"
+        state: present
+
+    - name: Create pCloud systemd service
+      template:
+        src: pcloudcc.service.j2
+        dest: /etc/systemd/system/pcloudcc.service
+        owner: root
+        group: root
+        mode: 0644
+
+      vars:
+        run_user: "{{ pcloud_account.name }}"
+        run_group: "{{ pcloud_account.group }}"
+        run_dir: "{{ pcloud_account.home }}"
+
+        username: "{{ pcloud_username }}"
+        mount_dir: "{{ pcloud_mount_dir }}"
+
+      register: pcloudcc_service
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+      when: pcloudcc_service.changed
