@@ -1,4 +1,5 @@
-FROM debian
+ARG VERSION_CODENAME=bullseye
+FROM debian:${VERSION_CODENAME}
 
 # build tools
 RUN apt update && apt install -y build-essential fakeroot devscripts cmake
